@@ -12,10 +12,28 @@
 
 ## 使い方
 
-1. `index.html` をブラウザで開く
+1. `index.html` をブラウザで開く（またはインストールしたアプリを起動）
 2. 「口座」タブで口座の開始残高を設定する
 3. 「取引」タブで収入・支出を記録する
 4. 画面右上で表示する月を切り替える
+
+## スマホ・PC にアプリとしてインストール（PWA）
+
+ホーム画面に追加すると、アプリのように全画面で起動し、オフラインでも使えます。インストールには HTTPS で公開された URL が必要です（`file://` で開いた場合はインストールできません）。
+
+### 1. GitHub Pages で公開する（初回のみ）
+
+1. このブランチを `main` にマージする
+2. GitHub のリポジトリ設定 → **Pages** → **Source** を「**GitHub Actions**」にする
+3. `main` への push で `.github/workflows/pages.yml` が動き、`https://<ユーザー名>.github.io/<リポジトリ名>/` に公開される
+
+### 2. 端末にインストールする
+
+- **iPhone / iPad**: Safari で公開 URL を開く → 共有ボタン（□↑）→「ホーム画面に追加」
+- **Android**: Chrome で公開 URL を開く → 「予算・設定」タブの「ホーム画面に追加」ボタン、またはメニュー →「アプリをインストール」
+- **PC（Chrome / Edge）**: アドレスバー右端のインストールアイコン
+
+データは端末ごとに保存されます。別の端末へ移すときは JSON バックアップ → 復元を使ってください。
 
 ## データの保存について
 
@@ -35,3 +53,7 @@ npm test   # 計算ロジック（js/core.js）の単体テスト
 | `js/core.js` | 残高・集計・予算などの計算ロジック（DOM 非依存） |
 | `js/app.js` | 画面描画とイベント処理 |
 | `tests/core.test.js` | `core.js` の単体テスト |
+| `manifest.webmanifest` | アプリ名・アイコンなど PWA の設定 |
+| `sw.js` | オフライン用 Service Worker（アプリのファイルを変更したら `CACHE_VERSION` を上げる） |
+| `icons/` | アプリアイコン |
+| `.github/workflows/pages.yml` | テスト実行と GitHub Pages への公開 |

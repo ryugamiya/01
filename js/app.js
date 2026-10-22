@@ -450,7 +450,52 @@
     resetTxForm();
   });
 
+  // ---------- アプリ化（PWA） ----------
+
+  const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  let installPrompt = null;
+
+  function renderInstallCard() {
+    const status = $('#install-status');
+    $('#install-actions').hidden = !installPrompt;
+    $('#install-ios').hidden = !(isIos && !isStandalone());
+    if (isStandalone()) status.textContent = 'アプリとしてインストール済みです。オフラインでも使えます。';
+    else if (isIos) status.textContent = 'Safari でホーム画面に追加すると、アプリのように全画面で起動し、オフラインでも使えます。';
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    installPrompt = e;
+    renderInstallCard();
+  });
+
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    renderInstallCard();
+  });
+
+  $('#install-button').addEventListener('click', async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    installPrompt = null;
+    renderInstallCard();
+  });
+
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service Worker の登録に失敗しました', err));
+    });
+  }
+
+  // ブラウザの容量不足時にデータが自動削除されないよう永続化を要求
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persisted().then((p) => p || navigator.storage.persist()).catch(() => {});
+  }
+
   // ---------- 起動 ----------
   render();
   resetTxForm();
+  renderInstallCard();
 })();

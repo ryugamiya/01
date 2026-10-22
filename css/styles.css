@@ -206,7 +206,46 @@ button.link.del:hover { color: var(--expense); }
 .inline-form { display: flex; gap: 6px; }
 .inline-form input { flex: 1; }
 
+.install-steps { padding-left: 1.4em; margin: 0; }
+
+/* ノッチ・ホームバーのある端末への対応 */
+.app-header {
+  padding-top: max(16px, env(safe-area-inset-top));
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+}
+
+html { -webkit-text-size-adjust: 100%; }
+body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+button, .tabs button { touch-action: manipulation; }
+
 @media (max-width: 600px) {
   .tx-table th:nth-child(3), .tx-table td:nth-child(3) { display: none; }
   .stat .value { font-size: 1.2rem; }
+  .stats { grid-template-columns: 1fr 1fr; }
+  .app-header h1 { font-size: 1.1rem; }
+
+  /* スマホでは画面下部のタブバーにする */
+  .tabs {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    margin: 0;
+    padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    border-bottom: none;
+    gap: 0;
+  }
+  .tabs button {
+    flex: 1;
+    padding: 12px 2px;
+    font-size: 0.75rem;
+    border-bottom: none;
+    border-top: 2px solid transparent;
+  }
+  .tabs button.active { border-top-color: var(--accent); }
+  main { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 }

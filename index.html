@@ -2,8 +2,17 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>自己資金管理</title>
+  <meta name="description" content="口座残高・収支・予算を管理する個人用の資金管理アプリ">
+  <meta name="theme-color" content="#2f6fde">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="資金管理">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -137,6 +146,19 @@
             </form>
           </div>
         </div>
+      </div>
+
+      <div class="card" id="install-card">
+        <h2>アプリとして使う</h2>
+        <p class="hint" id="install-status">ホーム画面に追加すると、アプリのように全画面で起動し、オフラインでも使えます。</p>
+        <div class="form-actions" id="install-actions" hidden>
+          <button type="button" class="primary" id="install-button">ホーム画面に追加</button>
+        </div>
+        <ol class="hint install-steps" id="install-ios" hidden>
+          <li>Safari 下部の共有ボタン（□↑）をタップ</li>
+          <li>「ホーム画面に追加」を選択</li>
+          <li>右上の「追加」をタップ</li>
+        </ol>
       </div>
 
       <div class="card">
