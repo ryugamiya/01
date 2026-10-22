@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>自己資金管理</title>
+  <meta name="description" content="口座残高・収支・予算を管理する個人用の資金管理アプリ">
+  <meta name="theme-color" content="#2f6fde">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="資金管理">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>自己資金管理</h1>
+    <div class="month-nav">
+      <button type="button" id="prev-month" aria-label="前の月">‹</button>
+      <input type="month" id="current-month" aria-label="表示月">
+      <button type="button" id="next-month" aria-label="次の月">›</button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" data-tab="dashboard" class="active">ダッシュボード</button>
+    <button type="button" role="tab" data-tab="transactions">取引</button>
+    <button type="button" role="tab" data-tab="accounts">口座</button>
+    <button type="button" role="tab" data-tab="settings">予算・設定</button>
+  </nav>
+
+  <main>
+    <!-- ダッシュボード -->
+    <section id="tab-dashboard" class="tab-panel active">
+      <div class="stats">
+        <div class="stat"><span class="label">総資産（月末時点）</span><span class="value" id="stat-total"></span></div>
+        <div class="stat"><span class="label">今月の収入</span><span class="value income" id="stat-income"></span></div>
+        <div class="stat"><span class="label">今月の支出</span><span class="value expense" id="stat-expense"></span></div>
+        <div class="stat"><span class="label">今月の収支</span><span class="value" id="stat-net"></span></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h2>カテゴリ別支出</h2>
+          <div id="category-chart" class="bar-list"></div>
+        </div>
+        <div class="card">
+          <h2>予算の状況</h2>
+          <div id="budget-list" class="bar-list"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>直近6か月の推移</h2>
+        <div id="trend-chart" class="trend"></div>
+      </div>
+    </section>
+
+    <!-- 取引 -->
+    <section id="tab-transactions" class="tab-panel">
+      <div class="card">
+        <h2 id="tx-form-title">取引を追加</h2>
+        <form id="tx-form" class="form-grid">
+          <input type="hidden" name="txId">
+          <div class="type-toggle" role="radiogroup" aria-label="種別">
+            <label><input type="radio" name="type" value="expense" checked><span>支出</span></label>
+            <label><input type="radio" name="type" value="income"><span>収入</span></label>
+            <label><input type="radio" name="type" value="transfer"><span>振替</span></label>
+          </div>
+          <label>日付<input type="date" name="date" required></label>
+          <label>金額（円）<input type="number" name="amount" min="1" step="1" inputmode="numeric" required></label>
+          <label class="field-category">カテゴリ<select name="category"></select></label>
+          <label><span class="account-label">口座</span><select name="accountId"></select></label>
+          <label class="field-to-account" hidden>振替先<select name="toAccountId"></select></label>
+          <label class="field-memo">メモ<input type="text" name="memo" maxlength="100"></label>
+          <p class="form-errors" id="tx-errors" role="alert"></p>
+          <div class="form-actions">
+            <button type="submit" class="primary" id="tx-submit">追加</button>
+            <button type="button" id="tx-cancel" hidden>キャンセル</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>取引一覧</h2>
+          <input type="search" id="tx-search" placeholder="メモ・カテゴリで検索">
+        </div>
+        <div class="table-wrap">
+          <table class="tx-table">
+            <thead><tr><th>日付</th><th>カテゴリ</th><th>口座</th><th>メモ</th><th class="num">金額</th><th></th></tr></thead>
+            <tbody id="tx-body"></tbody>
+          </table>
+        </div>
+        <p class="empty" id="tx-empty" hidden>この月の取引はありません</p>
+      </div>
+    </section>
+
+    <!-- 口座 -->
+    <section id="tab-accounts" class="tab-panel">
+      <div class="card">
+        <h2>口座残高</h2>
+        <ul id="account-list" class="account-list"></ul>
+      </div>
+      <div class="card">
+        <h2>口座を追加</h2>
+        <form id="account-form" class="form-grid">
+          <label>口座名<input type="text" name="name" required maxlength="30" placeholder="例: 証券口座"></label>
+          <label>開始残高（円）<input type="number" name="initialBalance" step="1" value="0"></label>
+          <div class="form-actions"><button type="submit" class="primary">追加</button></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- 予算・設定 -->
+    <section id="tab-settings" class="tab-panel">
+      <div class="card">
+        <h2>月の予算（支出カテゴリ別）</h2>
+        <p class="hint">空欄または 0 のカテゴリは予算なしとして扱います。</p>
+        <form id="budget-form">
+          <div id="budget-inputs" class="budget-inputs"></div>
+          <div class="form-actions"><button type="submit" class="primary">予算を保存</button></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>カテゴリ</h2>
+        <div class="grid-2">
+          <div>
+            <h3>支出</h3>
+            <ul class="chip-list" id="cat-expense"></ul>
+            <form class="inline-form" data-cat-type="expense">
+              <input type="text" name="name" placeholder="新しいカテゴリ" maxlength="20" required>
+              <button type="submit">追加</button>
+            </form>
+          </div>
+          <div>
+            <h3>収入</h3>
+            <ul class="chip-list" id="cat-income"></ul>
+            <form class="inline-form" data-cat-type="income">
+              <input type="text" name="name" placeholder="新しいカテゴリ" maxlength="20" required>
+              <button type="submit">追加</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="install-card">
+        <h2>アプリとして使う</h2>
+        <p class="hint" id="install-status">ホーム画面に追加すると、アプリのように全画面で起動し、オフラインでも使えます。</p>
+        <div class="form-actions" id="install-actions" hidden>
+          <button type="button" class="primary" id="install-button">ホーム画面に追加</button>
+        </div>
+        <ol class="hint install-steps" id="install-ios" hidden>
+          <li>Safari 下部の共有ボタン（□↑）をタップ</li>
+          <li>「ホーム画面に追加」を選択</li>
+          <li>右上の「追加」をタップ</li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h2>データ</h2>
+        <p class="hint">データはこのブラウザ内（localStorage）にのみ保存されます。定期的にバックアップしてください。</p>
+        <div class="form-actions wrap">
+          <button type="button" id="export-json">バックアップ（JSON）</button>
+          <label class="button-like">復元（JSON）<input type="file" id="import-json" accept="application/json,.json" hidden></label>
+          <button type="button" id="export-csv">CSV 書き出し</button>
+          <button type="button" id="reset-data" class="danger">全データを削除</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/core.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
