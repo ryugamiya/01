@@ -89,7 +89,7 @@ main { max-width: 1000px; margin: 0 auto; padding: 16px; }
 .card-head { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .card-head h2 { margin: 0; }
 
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
 .stat {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -100,6 +100,7 @@ main { max-width: 1000px; margin: 0 auto; padding: 16px; }
 }
 .stat .label { font-size: 0.8rem; color: var(--muted); }
 .stat .value { font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat .sub { font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .income { color: var(--income); }
 .expense { color: var(--expense); }
@@ -187,13 +188,13 @@ button.link.del:hover { color: var(--expense); }
 .tag-transfer { color: var(--muted); }
 
 /* 口座 */
-.account-list { list-style: none; margin: 0; padding: 0; }
-.account-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
-.account-list li:last-child { border-bottom: none; }
-.account-list .name { font-weight: 600; }
-.account-list .sub { font-size: 0.8rem; color: var(--muted); }
-.account-list .bal { font-variant-numeric: tabular-nums; font-weight: 700; margin-left: auto; }
-.account-list li.total { border-top: 2px solid var(--border); }
+.account-list, .item-list { list-style: none; margin: 0; padding: 0; }
+.account-list li, .item-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.account-list li:last-child, .item-list li:last-child { border-bottom: none; }
+.account-list .name, .item-list .name { font-weight: 600; }
+.account-list .sub, .item-list .sub { font-size: 0.8rem; color: var(--muted); }
+.account-list .bal, .item-list .bal { font-variant-numeric: tabular-nums; font-weight: 700; margin-left: auto; }
+.account-list li.total, .item-list li.total { border-top: 2px solid var(--border); }
 
 /* 予算 */
 .budget-inputs { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 12px; }
@@ -205,6 +206,22 @@ button.link.del:hover { color: var(--expense); }
 .chip-list button { border: none; background: none; padding: 0 6px; color: var(--muted); }
 .inline-form { display: flex; gap: 6px; }
 .inline-form input { flex: 1; }
+
+/* 固定費・借入 */
+.item-list:not(:empty) { margin-top: 12px; }
+.item-list .bal { white-space: nowrap; }
+.item-list li > div:first-child { flex: 1 1 auto; min-width: 0; }
+.tag { display: inline-block; font-size: 0.7rem; font-weight: 600; color: var(--accent); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; vertical-align: 1px; }
+.status { font-size: 0.75rem; color: var(--warn); white-space: nowrap; min-width: 4em; text-align: right; }
+.status.done { color: var(--income); }
+.loan-preview { grid-column: 1 / -1; margin: 0; font-size: 0.85rem; }
+.loan-preview.hint { margin: 0; }
+button:disabled { opacity: 0.5; cursor: default; }
+.field-kind { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; font-size: 0.85rem; color: var(--muted); }
+.field-kind .type-toggle { flex: 1; max-width: 320px; }
+.type-toggle.small span { padding: 6px; font-size: 0.85rem; }
+
+.tab-short { display: none; }
 
 .install-steps { padding-left: 1.4em; margin: 0; }
 
@@ -223,6 +240,10 @@ button, .tabs button { touch-action: manipulation; }
   .tx-table th:nth-child(3), .tx-table td:nth-child(3) { display: none; }
   .stat .value { font-size: 1.2rem; }
   .stats { grid-template-columns: 1fr 1fr; }
+  .tab-full { display: none; }
+  .tab-short { display: inline; }
+  .item-list li { flex-wrap: wrap; }
+  .item-list li > div:first-child { flex-basis: 100%; }
   .app-header h1 { font-size: 1.1rem; }
 
   /* スマホでは画面下部のタブバーにする */

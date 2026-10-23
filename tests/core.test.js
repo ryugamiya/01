@@ -30,7 +30,7 @@ test('指定日までの残高', () => {
 });
 
 test('月次サマリーは振替を含まない', () => {
-  assert.deepEqual(C.monthlySummary(sample(), '2026-10'), { income: 300000, expense: 88000, net: 212000 });
+  assert.deepEqual(C.monthlySummary(sample(), '2026-10'), { income: 300000, expense: 88000, fixedExpense: 0, variableExpense: 88000, net: 212000 });
 });
 
 test('カテゴリ別支出は金額の降順', () => {
@@ -80,10 +80,94 @@ test('normalizeState は壊れたデータを補正する', () => {
 test('CSV はカンマ・引用符をエスケープする', () => {
   const s = sample();
   s.transactions = [{ id: 'x', date: '2026-10-01', type: 'expense', amount: 100, category: '食費', accountId: 'cash', memo: 'a,"b"' }];
-  assert.equal(C.toCsv(s).split('\n')[1], '2026-10-01,支出,食費,100,現金,,"a,""b"""');
+  assert.equal(C.toCsv(s).split('\n')[1], '2026-10-01,支出,変動,食費,100,現金,,"a,""b"""');
 });
 
 test('formatYen', () => {
   assert.equal(C.formatYen(1234567), '¥1,234,567');
   assert.equal(C.formatYen(-500), '-¥500');
+});
+
+function withSchedule() {
+  const s = sample();
+  s.fixedExpenses = [
+    { id: 'rent', name: '家賃', amount: 80000, category: '住居費', accountId: 'bank', day: 27 },
+    { id: 'phone', name: 'スマホ', amount: 3000, category: '通信費', accountId: 'bank', day: 31 },
+  ];
+  s.loans = [{ id: 'car', name: 'カーローン', balance: 1200000, annualRate: 3, monthlyPayment: 30000, accountId: 'bank', day: 10 }];
+  return s;
+}
+
+test('dateInMonth は月末に丸める', () => {
+  assert.equal(C.dateInMonth('2026-02', 31), '2026-02-28');
+  assert.equal(C.dateInMonth('2028-02', 30), '2028-02-29');
+  assert.equal(C.dateInMonth('2026-10', 5), '2026-10-05');
+});
+
+test('返済の内訳: 利息は残高×年利/12', () => {
+  assert.deepEqual(C.loanPaymentSplit(1200000, 3, 30000), { payment: 30000, interest: 3000, principal: 27000 });
+  // 最終回は残高＋利息だけ払う
+  assert.deepEqual(C.loanPaymentSplit(10000, 12, 30000), { payment: 10100, interest: 100, principal: 10000 });
+});
+
+test('完済見通し', () => {
+  const p = C.loanProjection(1200000, 0, 100000);
+  assert.equal(p.months, 12);
+  assert.equal(p.totalInterest, 0);
+  const q = C.loanProjection(1200000, 3, 30000);
+  assert.ok(q.payable);
+  assert.equal(q.months, 43); // 公式では 42.2 か月 → 最終回は端数
+  assert.ok(q.totalInterest > 0 && q.totalInterest < 100000);
+  assert.equal(C.loanProjection(1000000, 15, 10000).payable, false);
+});
+
+test('固定支出・返済の記録で残高と借入が減り、二重記録されない', () => {
+  const s = withSchedule();
+  const before = C.totalBalance(s);
+  const items = C.scheduledItems(s, '2026-11');
+  assert.deepEqual(items.map((i) => [i.name, i.date, i.recorded]), [
+    ['カーローン', '2026-11-10', false],
+    ['家賃', '2026-11-27', false],
+    ['スマホ', '2026-11-30', false],
+  ]);
+  const txs = C.createScheduledTransactions(s, '2026-11');
+  assert.equal(txs.length, 3);
+  assert.ok(txs.every((t) => t.type === 'expense' && t.fixed));
+  s.transactions.push(...txs);
+  assert.equal(C.totalBalance(s), before - 80000 - 3000 - 30000);
+  assert.equal(C.loanBalance(s, s.loans[0]), 1200000 - 27000);
+  assert.equal(C.createScheduledTransactions(s, '2026-11').length, 0);
+  assert.ok(C.scheduledItems(s, '2026-11').every((i) => i.recorded));
+  const sum = C.monthlySummary(s, '2026-11');
+  assert.equal(sum.fixedExpense, 113000);
+  assert.equal(sum.variableExpense, 0);
+  // 翌月は減った残高で利息を計算
+  const next = C.scheduledItems(s, '2026-12').find((i) => i.kind === 'loan');
+  assert.equal(next.interest, Math.floor((1173000 * 3) / 100 / 12));
+});
+
+test('返済取引を削除すると借入残高が戻る', () => {
+  const s = withSchedule();
+  s.transactions.push(...C.createScheduledTransactions(s, '2026-11'));
+  s.transactions = s.transactions.filter((t) => !t.loanId);
+  assert.equal(C.totalLoanBalance(s), 1200000);
+});
+
+test('純資産の推移は借入を差し引く', () => {
+  const t = C.monthlyTrend(withSchedule(), '2026-10', 1)[0];
+  assert.equal(t.netWorth, t.balance - 1200000);
+});
+
+test('固定支出・借入の入力チェック', () => {
+  const s = sample();
+  assert.deepEqual(C.validateFixedExpense({ name: '家賃', amount: 1, category: '住居費', accountId: 'bank', day: 27 }, s), []);
+  assert.equal(C.validateFixedExpense({ name: ' ', amount: 0, category: '', accountId: 'x', day: 0 }, s).length, 5);
+  assert.deepEqual(C.validateLoan({ name: 'a', balance: 1, annualRate: 0, monthlyPayment: 1, accountId: 'bank', day: 1 }, s), []);
+  assert.equal(C.validateLoan({ name: '', balance: 0, annualRate: 120, monthlyPayment: 0, accountId: 'x', day: 40 }, s).length, 6);
+});
+
+test('normalizeState は旧データに固定支出・借入を補う', () => {
+  const s = C.normalizeState({ transactions: [] });
+  assert.deepEqual(s.fixedExpenses, []);
+  assert.deepEqual(s.loans, []);
 });

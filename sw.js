@@ -1,6 +1,6 @@
 // オフライン対応用 Service Worker
 // アプリのファイルを変更したら CACHE_VERSION を上げること
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = 'fund-manager-' + CACHE_VERSION;
 const APP_SHELL = [
   './',
