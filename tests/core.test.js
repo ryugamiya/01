@@ -162,12 +162,70 @@ test('固定支出・借入の入力チェック', () => {
   const s = sample();
   assert.deepEqual(C.validateFixedExpense({ name: '家賃', amount: 1, category: '住居費', accountId: 'bank', day: 27 }, s), []);
   assert.equal(C.validateFixedExpense({ name: ' ', amount: 0, category: '', accountId: 'x', day: 0 }, s).length, 5);
-  assert.deepEqual(C.validateLoan({ name: 'a', balance: 1, annualRate: 0, monthlyPayment: 1, accountId: 'bank', day: 1 }, s), []);
-  assert.equal(C.validateLoan({ name: '', balance: 0, annualRate: 120, monthlyPayment: 0, accountId: 'x', day: 40 }, s).length, 6);
+  assert.deepEqual(C.validateLoan({ name: 'a', balance: 1, annualRate: 0, monthlyPayment: 1, accountId: 'bank', day: 1, rateType: 'fixed' }, s), []);
+  assert.equal(C.validateLoan({ name: '', balance: 0, annualRate: 120, monthlyPayment: 0, accountId: 'x', day: 40, rateType: 'fixed' }, s).length, 6);
 });
 
 test('normalizeState は旧データに固定支出・借入を補う', () => {
   const s = C.normalizeState({ transactions: [] });
   assert.deepEqual(s.fixedExpenses, []);
   assert.deepEqual(s.loans, []);
+});
+
+test('金利タイプ: 旧データは固定金利、変動金利は見直し設定を保持', () => {
+  const s = C.normalizeState({ loans: [
+    { id: 'a', name: 'A', balance: 1, annualRate: 1, monthlyPayment: 1, accountId: 'bank', day: 1 },
+    { id: 'b', name: 'B', balance: 1, annualRate: 1, monthlyPayment: 1, accountId: 'bank', day: 1, rateType: 'variable', reviewYears: '3', nextReview: '2027-04', rateStep: '0.25' },
+  ] });
+  assert.deepEqual(s.loans.map((l) => l.rateType), ['fixed', 'variable']);
+  assert.equal(s.loans[0].reviewYears, undefined);
+  assert.equal(s.loans[1].reviewYears, 3);
+  assert.equal(s.loans[1].nextReview, '2027-04');
+  assert.equal(s.loans[1].rateStep, 0.25);
+});
+
+test('次の金利見直し月は N 年ごとに進む', () => {
+  const l = { rateType: 'variable', reviewYears: 3, nextReview: '2027-04' };
+  assert.equal(C.nextRateReview(l, '2026-10'), '2027-04');
+  assert.equal(C.nextRateReview(l, '2027-04'), '2027-04');
+  assert.equal(C.nextRateReview(l, '2027-05'), '2030-04');
+  assert.equal(C.nextRateReview(l, '2033-04'), '2033-04');
+  assert.equal(C.nextRateReview({ rateType: 'fixed' }, '2026-10'), null);
+});
+
+test('変動金利の見通し: 想定変動幅 0 なら固定と同じ、上昇なら利息が増える', () => {
+  const base = { annualRate: 1, monthlyPayment: 100000, rateType: 'variable', reviewYears: 1, nextReview: '2027-01' };
+  const fixed = C.loanProjection(5000000, 1, 100000);
+  const flat = C.loanOutlook({ ...base, rateStep: 0 }, 5000000, '2026-11');
+  assert.equal(flat.months, fixed.months);
+  assert.equal(flat.totalInterest, fixed.totalInterest);
+  const up = C.loanOutlook({ ...base, rateStep: 0.5 }, 5000000, '2026-11');
+  assert.ok(up.totalInterest > fixed.totalInterest);
+  assert.ok(up.months >= fixed.months);
+  // 2 回目の返済（2027-01）から 1.5%、2028-01 から 2.0% …
+  const exp = C.loanProjection(5000000, 1, 100000, { firstReviewIn: 2, intervalMonths: 12, step: 0.5 });
+  assert.deepEqual(up, exp);
+  // 金利は 0% 未満にならない
+  const down = C.loanOutlook({ ...base, rateStep: -5 }, 5000000, '2026-11');
+  assert.equal(down.finalRate, 0);
+});
+
+test('変動金利で利息が返済額を上回ると完済不可', () => {
+  const p = C.loanProjection(10000000, 1, 30000, { firstReviewIn: 12, intervalMonths: 12, step: 2 });
+  assert.equal(p.payable, false);
+  assert.ok(p.failMonth > 12);
+});
+
+test('変動金利の入力チェック', () => {
+  const s = sample();
+  const ok = { name: 'a', balance: 1, annualRate: 0.5, monthlyPayment: 1, accountId: 'bank', day: 1, rateType: 'variable', reviewYears: 5, nextReview: '2027-04', rateStep: 0.25 };
+  assert.deepEqual(C.validateLoan(ok, s), []);
+  assert.equal(C.validateLoan({ ...ok, reviewYears: 0, nextReview: '', rateStep: 20 }, s).length, 3);
+  assert.equal(C.validateLoan({ ...ok, reviewYears: 1.5 }, s).length, 1);
+});
+
+test('見直し月が最初の返済月なら、その回は入力済みの金利を使う', () => {
+  const l = { annualRate: 1, monthlyPayment: 100000, rateType: 'variable', reviewYears: 2, nextReview: '2026-11', rateStep: 0.5 };
+  const exp = C.loanProjection(5000000, 1, 100000, { firstReviewIn: 24, intervalMonths: 24, step: 0.5 });
+  assert.deepEqual(C.loanOutlook(l, 5000000, '2026-11'), exp);
 });

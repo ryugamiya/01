@@ -270,3 +270,5 @@ button, .tabs button { touch-action: manipulation; }
   .tabs button.active { border-top-color: var(--accent); }
   main { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 }
+
+.warn-text { color: var(--warn) !important; }

@@ -392,22 +392,30 @@
 
     $('#loan-list').innerHTML = state.loans.map((l) => {
       const bal = C.loanBalance(state, l);
-      const p = C.loanProjection(bal, l.annualRate, l.monthlyPayment);
+      // 表示月の返済が記録済みなら、残りは翌月から数える
+      const paidThisMonth = state.transactions.some((t) => t.loanId === l.id && C.monthKey(t.date) === currentMonth);
+      const startYm = paidThisMonth ? C.shiftMonth(currentMonth, 1) : currentMonth;
+      const p = C.loanOutlook(l, bal, startYm);
       let outlook;
       if (bal <= 0) outlook = '<span class="income">完済しました</span>';
-      else if (!p.payable) outlook = `<span class="expense">返済額が月の利息（${C.formatYen(p.firstInterest)}）以下のため完済できません</span>`;
-      else {
-        // 表示月の返済が記録済みなら、残りは翌月から数える
-        const paidThisMonth = state.transactions.some((t) => t.loanId === l.id && C.monthKey(t.date) === currentMonth);
-        const last = C.shiftMonth(currentMonth, p.months - (paidThisMonth ? 0 : 1));
-        outlook = `完済まであと ${p.months} 回（${monthLabel(last)}頃）・今後の利息 ${C.formatYen(p.totalInterest)}`;
+      else outlook = describeOutlook(p, startYm, l.rateType === 'variable' ? l.rateStep : 0, '今後の利息');
+      let rateInfo = `固定金利 ${l.annualRate}%`;
+      let reviewAlert = '';
+      if (l.rateType === 'variable') {
+        const review = C.nextRateReview(l, currentMonth);
+        rateInfo = `変動金利 ${l.annualRate}%（${l.reviewYears}年ごとに見直し・次回 ${review ? monthLabel(review) : '未設定'}）`;
+        if (review === currentMonth && bal > 0) {
+          reviewAlert = '<div class="sub warn-text">今月は金利の見直し月です。新しい金利が決まったら「編集」で年利を更新してください。</div>';
+        }
       }
       return `
       <li>
         <div>
-          <div class="name">${esc(l.name)}</div>
-          <div class="sub">年利 ${l.annualRate}%・毎月${l.day}日 ${C.formatYen(l.monthlyPayment)}・${esc(accountName(l.accountId))}</div>
+          <div class="name">${esc(l.name)} <span class="tag">${l.rateType === 'variable' ? '変動' : '固定'}</span></div>
+          <div class="sub">${rateInfo}</div>
+          <div class="sub">毎月${l.day}日 ${C.formatYen(l.monthlyPayment)}・${esc(accountName(l.accountId))}</div>
           <div class="sub">${outlook}</div>
+          ${reviewAlert}
         </div>
         <span class="bal">${C.formatYen(bal)}</span>
         <button type="button" class="link" data-loan-edit="${esc(l.id)}">編集</button>
@@ -437,26 +445,66 @@
     return input.value.trim() === '' ? NaN : Number(input.value);
   }
 
+  // 完済見通しの文章。変動金利で想定変動幅があれば、その前提も添える
+  function describeOutlook(p, startYm, rateStep, interestLabel) {
+    const assumption = rateStep ? `見直しごとに${rateStep > 0 ? '+' : ''}${rateStep}%の想定で、` : '';
+    if (!p.payable) {
+      if (p.failMonth) {
+        const when = monthLabel(C.shiftMonth(startYm, p.failMonth - 1));
+        return `<span class="expense">${assumption}${when}頃に金利が${p.failRate.toFixed(2).replace(/\.?0+$/, '')}%になり、利息が返済額を上回るため完済できません</span>`;
+      }
+      return `<span class="expense">返済額が月の利息（${C.formatYen(p.firstInterest)}）以下のため完済できません</span>`;
+    }
+    const years = Math.floor(p.months / 12), months = p.months % 12;
+    const span = `${years ? years + '年' : ''}${months ? months + 'か月' : ''}`;
+    const last = monthLabel(C.shiftMonth(startYm, p.months - 1));
+    return `${assumption}完済まであと ${p.months} 回（${span}・${last}頃）・${interestLabel} ${C.formatYen(p.totalInterest)}`;
+  }
+
+  // フォームの入力内容を借入データの形にする
+  function loanFromForm(form) {
+    const l = {
+      name: form.title.value.trim(),
+      annualRate: readNumber(form.annualRate),
+      monthlyPayment: Math.round(readNumber(form.monthlyPayment)),
+      accountId: form.accountId.value,
+      day: Math.round(readNumber(form.day)),
+      rateType: form.rateType.value,
+    };
+    if (l.rateType === 'variable') {
+      l.reviewYears = readNumber(form.reviewYears);
+      l.nextReview = form.nextReview.value;
+      l.rateStep = form.rateStep.value.trim() === '' ? 0 : Number(form.rateStep.value);
+    }
+    return l;
+  }
+
+  // 金利タイプに応じて変動金利の入力欄を出し分ける
+  function syncRateFields() {
+    const form = $('#loan-form');
+    const variable = form.rateType.value === 'variable';
+    form.querySelectorAll('.field-variable').forEach((el) => { el.hidden = !variable; });
+    form.querySelector('.rate-label').textContent = variable ? '現在の年利（%）' : '年利（%）';
+    if (variable && !form.nextReview.value) form.nextReview.value = C.shiftMonth(currentMonth, 12);
+  }
+
   // 入力中の借入から完済見通しをその場で表示
   function updateLoanPreview() {
     const form = $('#loan-form');
+    const l = loanFromForm(form);
     const bal = readNumber(form.balance);
-    const rate = readNumber(form.annualRate);
-    const pay = readNumber(form.monthlyPayment);
     const out = $('#loan-preview');
-    if (!(bal > 0 && rate >= 0 && pay > 0)) {
+    if (!(bal > 0 && l.annualRate >= 0 && l.monthlyPayment > 0)) {
       out.textContent = '残高・年利・返済額を入れると、完済までの回数と利息の総額を計算します。';
       out.className = 'loan-preview hint';
       return;
     }
-    const p = C.loanProjection(Math.round(bal), rate, Math.round(pay));
-    if (!p.payable) {
-      out.textContent = `返済額が月の利息（${C.formatYen(p.firstInterest)}）以下のため、このままでは完済できません。`;
-      out.className = 'loan-preview expense';
-      return;
-    }
-    const years = Math.floor(p.months / 12), months = p.months % 12;
-    out.textContent = `完済まで ${p.months} 回（${years ? years + '年' : ''}${months ? months + 'か月' : ''}）・利息の総額 ${C.formatYen(p.totalInterest)}・支払総額 ${C.formatYen(p.totalPaid)}`;
+    const usable = l.rateType === 'variable' && l.reviewYears >= 1 && /^\d{4}-\d{2}$/.test(l.nextReview);
+    const p = usable
+      ? C.loanOutlook({ ...l, reviewYears: Math.round(l.reviewYears) }, Math.round(bal), currentMonth)
+      : C.loanProjection(Math.round(bal), l.annualRate, l.monthlyPayment);
+    out.innerHTML = describeOutlook(p, currentMonth, usable ? l.rateStep : 0, '利息の総額')
+      + (p.payable ? `・支払総額 ${C.formatYen(p.totalPaid)}` : '');
     out.className = 'loan-preview';
   }
 
@@ -480,6 +528,7 @@
     $('#loan-cancel').hidden = true;
     $('#loan-errors').textContent = '';
     syncFixedFormOptions();
+    syncRateFields();
     updateLoanPreview();
   }
 
@@ -546,21 +595,19 @@
   });
 
   $('#loan-form').addEventListener('input', updateLoanPreview);
+  $('#loan-form').addEventListener('change', (e) => {
+    if (e.target.name === 'rateType') {
+      syncRateFields();
+      updateLoanPreview();
+    }
+  });
 
   $('#loan-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const form = e.target;
     const id = form.loanId.value || C.genId();
     const current = Math.round(Number(form.balance.value));
-    const l = {
-      id,
-      name: form.title.value.trim(),
-      balance: current,
-      annualRate: Number(form.annualRate.value),
-      monthlyPayment: Math.round(Number(form.monthlyPayment.value)),
-      accountId: form.accountId.value,
-      day: Math.round(Number(form.day.value)),
-    };
+    const l = { id, balance: current, ...loanFromForm(form) };
     const errors = C.validateLoan(l, state);
     if (errors.length) {
       $('#loan-errors').textContent = errors.join(' / ');
@@ -595,6 +642,13 @@
       form.monthlyPayment.value = l.monthlyPayment;
       form.accountId.value = l.accountId;
       form.day.value = l.day;
+      form.rateType.value = l.rateType;
+      if (l.rateType === 'variable') {
+        form.reviewYears.value = l.reviewYears;
+        form.nextReview.value = l.nextReview;
+        form.rateStep.value = l.rateStep;
+      }
+      syncRateFields();
       $('#loan-form-title').textContent = '借入を編集';
       $('#loan-submit').textContent = '更新';
       $('#loan-cancel').hidden = false;

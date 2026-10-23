@@ -148,7 +148,17 @@
           <input type="hidden" name="loanId">
           <label>名前<input type="text" name="title" required maxlength="30" placeholder="例: 住宅ローン、カードローン"></label>
           <label>現在の借入残高（円）<input type="number" name="balance" min="1" step="1" inputmode="numeric" required></label>
-          <label>年利（%）<input type="number" name="annualRate" min="0" max="99.99" step="0.01" inputmode="decimal" required placeholder="例: 1.5"></label>
+          <div class="field-kind" role="radiogroup" aria-label="金利タイプ">
+            <span class="kind-label">金利タイプ</span>
+            <div class="type-toggle small">
+              <label><input type="radio" name="rateType" value="fixed" checked><span>固定金利</span></label>
+              <label><input type="radio" name="rateType" value="variable"><span>変動金利</span></label>
+            </div>
+          </div>
+          <label><span class="rate-label">年利（%）</span><input type="number" name="annualRate" min="0" max="99.99" step="0.001" inputmode="decimal" required placeholder="例: 1.5"></label>
+          <label class="field-variable" hidden>金利の見直し間隔（年ごと）<input type="number" name="reviewYears" min="1" max="50" step="1" inputmode="numeric" value="1"></label>
+          <label class="field-variable" hidden>次回の金利見直し（年月）<input type="month" name="nextReview"></label>
+          <label class="field-variable" hidden>見直しごとの金利変動の想定（%）<input type="number" name="rateStep" min="-10" max="10" step="0.01" inputmode="decimal" value="0" placeholder="例: 0.25（上昇）、-0.1（低下）"></label>
           <label>月々の返済額（円）<input type="number" name="monthlyPayment" min="1" step="1" inputmode="numeric" required></label>
           <label>返済日（毎月）<input type="number" name="day" min="1" max="31" step="1" inputmode="numeric" value="27" required></label>
           <label>引落口座<select name="accountId"></select></label>

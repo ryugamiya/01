@@ -87,6 +87,7 @@
       monthlyPayment: Math.abs(Number(l.monthlyPayment)) || 0,
       accountId: String(l.accountId),
       day: clampDay(l.day),
+      ...normalizeRateType(l),
     }));
     return state;
   }
@@ -121,6 +122,17 @@
     return errors;
   }
 
+  // 金利タイプ。変動金利は「何年ごとに見直すか」「次回の見直し月」「見直しごとの想定変動幅」を持つ
+  function normalizeRateType(l) {
+    if (l.rateType !== 'variable') return { rateType: 'fixed' };
+    return {
+      rateType: 'variable',
+      reviewYears: Math.min(50, Math.max(1, Math.round(Number(l.reviewYears)) || 1)),
+      nextReview: /^\d{4}-\d{2}$/.test(l.nextReview || '') ? l.nextReview : '',
+      rateStep: Number(l.rateStep) || 0,
+    };
+  }
+
   function validateLoan(l, state) {
     const errors = [];
     if (!String(l.name || '').trim()) errors.push('名前を入力してください');
@@ -129,11 +141,33 @@
     if (!(Number(l.monthlyPayment) > 0)) errors.push('月々の返済額は 0 より大きい数値を入力してください');
     if (!state.accounts.some((a) => a.id === l.accountId)) errors.push('引落口座を選択してください');
     if (!(l.day >= 1 && l.day <= 31)) errors.push('返済日は 1〜31 で入力してください');
+    if (l.rateType === 'variable') {
+      if (!(Number.isInteger(Number(l.reviewYears)) && l.reviewYears >= 1 && l.reviewYears <= 50)) errors.push('見直し間隔は 1〜50 年で入力してください');
+      if (!/^\d{4}-\d{2}$/.test(l.nextReview || '')) errors.push('次回の金利見直しの年月を入力してください');
+      if (!(Math.abs(Number(l.rateStep)) <= 10)) errors.push('見直しごとの金利変動の想定は -10〜10% で入力してください');
+    } else if (l.rateType !== 'fixed') {
+      errors.push('金利タイプを選択してください');
+    }
     return errors;
   }
 
   function monthKey(date) {
     return String(date).slice(0, 7);
+  }
+
+  function monthsBetween(fromYm, toYm) {
+    const [fy, fm] = fromYm.split('-').map(Number);
+    const [ty, tm] = toYm.split('-').map(Number);
+    return (ty - fy) * 12 + (tm - fm);
+  }
+
+  // ym 以降で最初に来る金利見直し月（固定金利なら null）
+  function nextRateReview(loan, ym) {
+    if (loan.rateType !== 'variable' || !loan.nextReview) return null;
+    const interval = loan.reviewYears * 12;
+    const diff = monthsBetween(loan.nextReview, ym);
+    if (diff <= 0) return loan.nextReview;
+    return shiftMonth(loan.nextReview, Math.ceil(diff / interval) * interval);
   }
 
   function shiftMonth(ym, delta) {
@@ -157,19 +191,38 @@
   }
 
   // 現在の残高から完済までの見通し。返済額が利息以下なら完済不可
-  function loanProjection(balance, annualRate, monthlyPayment) {
+  // variable を渡すと、firstReviewIn 回目の返済から intervalMonths ごとに金利を step だけ変えて試算する（0% 未満にはしない）
+  function loanProjection(balance, annualRate, monthlyPayment, variable) {
     let rest = balance;
     let months = 0;
     let totalInterest = 0;
+    let rate = annualRate;
     const firstInterest = Math.floor((balance * annualRate) / 100 / 12);
-    if (balance > 0 && monthlyPayment <= firstInterest) return { payable: false, months: Infinity, totalInterest: Infinity, totalPaid: Infinity, firstInterest };
+    const fail = { payable: false, months: Infinity, totalInterest: Infinity, totalPaid: Infinity, firstInterest, finalRate: rate };
+    if (balance > 0 && monthlyPayment <= firstInterest) return fail;
     while (rest > 0 && months < 1200) {
-      const s = loanPaymentSplit(rest, annualRate, monthlyPayment);
+      if (variable && variable.step && months >= variable.firstReviewIn && (months - variable.firstReviewIn) % variable.intervalMonths === 0) {
+        rate = Math.max(0, rate + variable.step);
+      }
+      const s = loanPaymentSplit(rest, rate, monthlyPayment);
+      if (s.principal <= 0) return { ...fail, failMonth: months + 1, failRate: rate };
       rest -= s.principal;
       totalInterest += s.interest;
       months++;
     }
-    return { payable: rest <= 0, months, totalInterest, totalPaid: balance + totalInterest, firstInterest };
+    return { payable: rest <= 0, months, totalInterest, totalPaid: balance + totalInterest, firstInterest, finalRate: rate };
+  }
+
+  // 登録済みの借入について、startYm（最初の返済月）からの見通しを金利タイプに応じて計算
+  function loanOutlook(loan, balance, startYm) {
+    if (loan.rateType !== 'variable' || !loan.nextReview) return loanProjection(balance, loan.annualRate, loan.monthlyPayment);
+    // 見直し月が最初の返済月と同じなら、入力済みの「現在の年利」がその見直し後の金利とみなし、次の見直しから変動させる
+    const review = nextRateReview(loan, shiftMonth(startYm, 1));
+    return loanProjection(balance, loan.annualRate, loan.monthlyPayment, {
+      firstReviewIn: monthsBetween(startYm, review),
+      intervalMonths: loan.reviewYears * 12,
+      step: loan.rateStep,
+    });
   }
 
   // 登録時の残高から、記録済み返済の元金分を差し引いた残高
@@ -349,6 +402,9 @@
     dateInMonth,
     loanPaymentSplit,
     loanProjection,
+    loanOutlook,
+    nextRateReview,
+    monthsBetween,
     loanBalance,
     totalLoanBalance,
     scheduledItems,
