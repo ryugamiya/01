@@ -50,16 +50,25 @@
     $('#current-month').value = currentMonth;
     renderDashboard();
     renderTransactions();
+    renderFixed();
     renderAccounts();
     renderSettings();
     syncFormOptions();
+    syncFixedFormOptions();
   }
 
   function renderDashboard() {
     const s = C.monthlySummary(state, currentMonth);
-    $('#stat-total').textContent = C.formatYen(C.totalBalance(state, currentMonth + '-31'));
+    const total = C.totalBalance(state, currentMonth + '-31');
+    const loan = C.totalLoanBalance(state, currentMonth + '-31');
+    $('#stat-total').textContent = C.formatYen(total);
+    $('#stat-loan').textContent = C.formatYen(loan);
+    const nw = $('#stat-networth');
+    nw.textContent = C.formatYen(total - loan);
+    nw.className = 'value ' + (total - loan < 0 ? 'expense' : '');
     $('#stat-income').textContent = C.formatYen(s.income);
     $('#stat-expense').textContent = C.formatYen(s.expense);
+    $('#stat-expense-split').textContent = `固定 ${C.formatYen(s.fixedExpense)}・変動 ${C.formatYen(s.variableExpense)}`;
     const net = $('#stat-net');
     net.textContent = (s.net > 0 ? '+' : '') + C.formatYen(s.net);
     net.className = 'value ' + (s.net >= 0 ? 'income' : 'expense');
@@ -94,7 +103,7 @@
     const data = C.monthlyTrend(state, currentMonth, 6);
     const W = 640, H = 240, padL = 64, padR = 12, padT = 12, padB = 28;
     const plotW = W - padL - padR, plotH = H - padT - padB;
-    const values = data.flatMap((d) => [d.income, d.expense, d.balance]);
+    const values = data.flatMap((d) => [d.income, d.expense, d.netWorth]);
     // 目盛りが切りの良い値になるよう上下限を丸める
     const step = niceStep((Math.max(0, ...values) - Math.min(0, ...values)) / 4 || 1);
     const maxV = Math.ceil(Math.max(0, ...values) / step) * step || step;
@@ -104,7 +113,7 @@
     const slot = plotW / data.length;
     const bw = Math.min(18, slot / 4);
 
-    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="直近6か月の収入・支出・総資産の推移">`;
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="直近6か月の収入・支出・純資産の推移">`;
     for (let v = minV; v <= maxV; v += step) {
       svg += `<line class="axis" x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" />`;
       svg += `<text x="${padL - 6}" y="${y(v) + 4}" text-anchor="end">${shortYen(v)}</text>`;
@@ -115,14 +124,14 @@
       svg += `<rect class="bar-income" x="${cx - bw - 1}" y="${y(d.income)}" width="${bw}" height="${Math.max(0, y(0) - y(d.income))}" rx="2"><title>${d.month} 収入 ${C.formatYen(d.income)}</title></rect>`;
       svg += `<rect class="bar-expense" x="${cx + 1}" y="${y(d.expense)}" width="${bw}" height="${Math.max(0, y(0) - y(d.expense))}" rx="2"><title>${d.month} 支出 ${C.formatYen(d.expense)}</title></rect>`;
       svg += `<text x="${cx}" y="${H - 8}" text-anchor="middle">${Number(d.month.slice(5))}月</text>`;
-      pts.push([cx, y(d.balance), d]);
+      pts.push([cx, y(d.netWorth), d]);
     });
     svg += `<polyline class="line-balance" points="${pts.map((p) => p[0] + ',' + p[1]).join(' ')}" />`;
     pts.forEach(([x, yy, d]) => {
-      svg += `<circle class="dot-balance" cx="${x}" cy="${yy}" r="3.5"><title>${d.month} 総資産 ${C.formatYen(d.balance)}</title></circle>`;
+      svg += `<circle class="dot-balance" cx="${x}" cy="${yy}" r="3.5"><title>${d.month} 純資産 ${C.formatYen(d.netWorth)}</title></circle>`;
     });
     svg += '</svg>';
-    svg += '<div class="legend"><span class="l-income">収入</span><span class="l-expense">支出</span><span class="l-balance">月末総資産</span></div>';
+    svg += '<div class="legend"><span class="l-income">収入</span><span class="l-expense">支出</span><span class="l-balance">月末純資産</span></div>';
     $('#trend-chart').innerHTML = svg;
   }
 
@@ -153,7 +162,7 @@
         amt = C.formatYen(t.amount);
         cls = '';
       } else {
-        cat = esc(t.category);
+        cat = esc(t.category) + (t.loanId ? ' <span class="tag">返済</span>' : t.fixed ? ' <span class="tag">固定</span>' : '');
         amt = (t.type === 'income' ? '+' : '-') + C.formatYen(t.amount);
         cls = t.type;
       }
@@ -177,13 +186,17 @@
 
   function renderAccounts() {
     const bal = C.accountBalances(state);
-    const used = new Set(state.transactions.flatMap((t) => [t.accountId, t.toAccountId]));
+    const used = new Set([
+      ...state.transactions.flatMap((t) => [t.accountId, t.toAccountId]),
+      ...state.fixedExpenses.map((f) => f.accountId),
+      ...state.loans.map((l) => l.accountId),
+    ]);
     const items = state.accounts.map((a) => `
       <li>
         <div><div class="name">${esc(a.name)}</div><div class="sub">開始残高 ${C.formatYen(a.initialBalance)}</div></div>
         <span class="bal ${bal[a.id] < 0 ? 'expense' : ''}">${C.formatYen(bal[a.id] || 0)}</span>
         <button type="button" class="link" data-acct-edit="${esc(a.id)}">編集</button>
-        <button type="button" class="link del" data-acct-del="${esc(a.id)}" ${used.has(a.id) || state.accounts.length <= 1 ? 'disabled title="取引がある口座、または最後の口座は削除できません"' : ''}>削除</button>
+        <button type="button" class="link del" data-acct-del="${esc(a.id)}" ${used.has(a.id) || state.accounts.length <= 1 ? 'disabled title="入出金・固定費・借入で使っている口座、または最後の口座は削除できません"' : ''}>削除</button>
       </li>`);
     items.push(`<li class="total"><div class="name">合計（現在）</div><span class="bal">${C.formatYen(C.totalBalance(state))}</span></li>`);
     $('#account-list').innerHTML = items.join('');
@@ -217,6 +230,7 @@
     form.querySelector('.field-category').hidden = isTransfer;
     form.querySelector('.field-to-account').hidden = !isTransfer;
     form.querySelector('.account-label').textContent = isTransfer ? '振替元' : '口座';
+    form.querySelector('.field-kind').hidden = type !== 'expense';
   }
 
   // ---------- 取引フォーム ----------
@@ -231,7 +245,8 @@
     form.date.value = currentMonth === todayStr().slice(0, 7) ? todayStr() : currentMonth + '-01';
     syncFormOptions();
     if (keepAccount) form.accountId.value = keepAccount;
-    $('#tx-form-title').textContent = '取引を追加';
+    form.kind.value = 'variable';
+    $('#tx-form-title').textContent = '入出金を追加';
     $('#tx-submit').textContent = '追加';
     $('#tx-cancel').hidden = true;
     $('#tx-errors').textContent = '';
@@ -240,6 +255,10 @@
   function startEdit(id) {
     const t = state.transactions.find((x) => x.id === id);
     if (!t) return;
+    if (t.loanId) {
+      alert('借入の返済は元金・利息の内訳と連動しているため編集できません。\n修正する場合は削除して「固定費・借入」タブから記録し直してください。');
+      return;
+    }
     const form = $('#tx-form');
     form.type.value = t.type;
     syncFormOptions();
@@ -256,7 +275,8 @@
       form.category.value = t.category;
     }
     form.memo.value = t.memo;
-    $('#tx-form-title').textContent = '取引を編集';
+    form.kind.value = t.fixed ? 'fixed' : 'variable';
+    $('#tx-form-title').textContent = '入出金を編集';
     $('#tx-submit').textContent = '更新';
     $('#tx-cancel').hidden = false;
     $('#tx-errors').textContent = '';
@@ -279,7 +299,11 @@
       accountId: form.accountId.value,
       toAccountId: form.type.value === 'transfer' ? form.toAccountId.value : undefined,
       memo: form.memo.value.trim(),
+      fixed: form.type.value === 'expense' && form.kind.value === 'fixed',
     };
+    // 固定支出リストから記録したものは、支出のままなら紐づけを残す（二重記録の防止）
+    const prev = state.transactions.find((t) => t.id === tx.id);
+    if (prev && prev.fixedId && tx.type === 'expense') tx.fixedId = prev.fixedId;
     const errors = C.validateTransaction(tx, state);
     if (errors.length) {
       $('#tx-errors').textContent = errors.join(' / ');
@@ -299,7 +323,7 @@
     const edit = e.target.closest('[data-edit]');
     const del = e.target.closest('[data-del]');
     if (edit) startEdit(edit.dataset.edit);
-    if (del && confirm('この取引を削除しますか？')) {
+    if (del && confirm('この入出金を削除しますか？')) {
       state.transactions = state.transactions.filter((t) => t.id !== del.dataset.del);
       if ($('#tx-form').txId.value === del.dataset.del) resetTxForm();
       commit();
@@ -326,6 +350,262 @@
       document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b === btn));
       document.querySelectorAll('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === 'tab-' + btn.dataset.tab));
     });
+  });
+
+  // ---------- 固定費・借入 ----------
+
+  function monthLabel(ym) {
+    return `${ym.slice(0, 4)}年${Number(ym.slice(5))}月`;
+  }
+
+  function renderFixed() {
+    $('#schedule-title').textContent = `${monthLabel(currentMonth)}の固定支出・返済`;
+    const items = C.scheduledItems(state, currentMonth);
+    $('#schedule-list').innerHTML = items.map((i) => `
+      <li>
+        <div>
+          <div class="name">${esc(i.name)} ${i.kind === 'loan' ? '<span class="tag">返済</span>' : ''}</div>
+          <div class="sub">${Number(i.date.slice(8))}日・${esc(i.category)}・${esc(accountName(i.accountId))}${
+            i.kind === 'loan' && !i.recorded ? `・元金 ${C.formatYen(i.principal)} / 利息 ${C.formatYen(i.interest)}` : ''}</div>
+        </div>
+        <span class="bal">${C.formatYen(i.amount)}</span>
+        <span class="status ${i.recorded ? 'done' : ''}">${i.recorded ? '記録済み' : '未記録'}</span>
+      </li>`).join('');
+    const pending = items.filter((i) => !i.recorded);
+    $('#schedule-empty').hidden = items.length > 0 || state.fixedExpenses.length + state.loans.length > 0;
+    $('#record-schedule').disabled = pending.length === 0;
+    $('#record-schedule').textContent = pending.length
+      ? `未記録の ${pending.length} 件を記録（${C.formatYen(pending.reduce((a, i) => a + i.amount, 0))}）`
+      : 'すべて記録済み';
+
+    $('#fixed-list').innerHTML = state.fixedExpenses.map((f) => `
+      <li>
+        <div><div class="name">${esc(f.name)}</div><div class="sub">毎月${f.day}日・${esc(f.category)}・${esc(accountName(f.accountId))}</div></div>
+        <span class="bal">${C.formatYen(f.amount)}</span>
+        <button type="button" class="link" data-fixed-edit="${esc(f.id)}">編集</button>
+        <button type="button" class="link del" data-fixed-del="${esc(f.id)}">削除</button>
+      </li>`).join('');
+    if (state.fixedExpenses.length) {
+      const sum = state.fixedExpenses.reduce((a, f) => a + f.amount, 0);
+      $('#fixed-list').insertAdjacentHTML('beforeend', `<li class="total"><div class="name">固定支出の合計（月）</div><span class="bal">${C.formatYen(sum)}</span></li>`);
+    }
+
+    $('#loan-list').innerHTML = state.loans.map((l) => {
+      const bal = C.loanBalance(state, l);
+      const p = C.loanProjection(bal, l.annualRate, l.monthlyPayment);
+      let outlook;
+      if (bal <= 0) outlook = '<span class="income">完済しました</span>';
+      else if (!p.payable) outlook = `<span class="expense">返済額が月の利息（${C.formatYen(p.firstInterest)}）以下のため完済できません</span>`;
+      else {
+        // 表示月の返済が記録済みなら、残りは翌月から数える
+        const paidThisMonth = state.transactions.some((t) => t.loanId === l.id && C.monthKey(t.date) === currentMonth);
+        const last = C.shiftMonth(currentMonth, p.months - (paidThisMonth ? 0 : 1));
+        outlook = `完済まであと ${p.months} 回（${monthLabel(last)}頃）・今後の利息 ${C.formatYen(p.totalInterest)}`;
+      }
+      return `
+      <li>
+        <div>
+          <div class="name">${esc(l.name)}</div>
+          <div class="sub">年利 ${l.annualRate}%・毎月${l.day}日 ${C.formatYen(l.monthlyPayment)}・${esc(accountName(l.accountId))}</div>
+          <div class="sub">${outlook}</div>
+        </div>
+        <span class="bal">${C.formatYen(bal)}</span>
+        <button type="button" class="link" data-loan-edit="${esc(l.id)}">編集</button>
+        <button type="button" class="link del" data-loan-del="${esc(l.id)}">削除</button>
+      </li>`;
+    }).join('');
+    if (state.loans.length) {
+      $('#loan-list').insertAdjacentHTML('beforeend', `<li class="total"><div class="name">借入残高の合計（現在）</div><span class="bal">${C.formatYen(C.totalLoanBalance(state))}</span></li>`);
+    }
+    updateLoanPreview();
+  }
+
+  function fillSelect(sel, opts) {
+    const prev = sel.value;
+    sel.innerHTML = opts.map(([v, label]) => `<option value="${esc(v)}">${esc(label)}</option>`).join('');
+    if (opts.some(([v]) => v === prev)) sel.value = prev;
+  }
+
+  function syncFixedFormOptions() {
+    const acctOpts = state.accounts.map((a) => [a.id, a.name]);
+    fillSelect($('#fixed-form').category, state.categories.expense.map((c) => [c, c]));
+    fillSelect($('#fixed-form').accountId, acctOpts);
+    fillSelect($('#loan-form').accountId, acctOpts);
+  }
+
+  function readNumber(input) {
+    return input.value.trim() === '' ? NaN : Number(input.value);
+  }
+
+  // 入力中の借入から完済見通しをその場で表示
+  function updateLoanPreview() {
+    const form = $('#loan-form');
+    const bal = readNumber(form.balance);
+    const rate = readNumber(form.annualRate);
+    const pay = readNumber(form.monthlyPayment);
+    const out = $('#loan-preview');
+    if (!(bal > 0 && rate >= 0 && pay > 0)) {
+      out.textContent = '残高・年利・返済額を入れると、完済までの回数と利息の総額を計算します。';
+      out.className = 'loan-preview hint';
+      return;
+    }
+    const p = C.loanProjection(Math.round(bal), rate, Math.round(pay));
+    if (!p.payable) {
+      out.textContent = `返済額が月の利息（${C.formatYen(p.firstInterest)}）以下のため、このままでは完済できません。`;
+      out.className = 'loan-preview expense';
+      return;
+    }
+    const years = Math.floor(p.months / 12), months = p.months % 12;
+    out.textContent = `完済まで ${p.months} 回（${years ? years + '年' : ''}${months ? months + 'か月' : ''}）・利息の総額 ${C.formatYen(p.totalInterest)}・支払総額 ${C.formatYen(p.totalPaid)}`;
+    out.className = 'loan-preview';
+  }
+
+  function resetFixedForm() {
+    const form = $('#fixed-form');
+    form.reset();
+    form.fixedId.value = '';
+    $('#fixed-form-title').textContent = '固定支出を登録';
+    $('#fixed-submit').textContent = '登録';
+    $('#fixed-cancel').hidden = true;
+    $('#fixed-errors').textContent = '';
+    syncFixedFormOptions();
+  }
+
+  function resetLoanForm() {
+    const form = $('#loan-form');
+    form.reset();
+    form.loanId.value = '';
+    $('#loan-form-title').textContent = '借入を登録';
+    $('#loan-submit').textContent = '登録';
+    $('#loan-cancel').hidden = true;
+    $('#loan-errors').textContent = '';
+    syncFixedFormOptions();
+    updateLoanPreview();
+  }
+
+  $('#record-schedule').addEventListener('click', () => {
+    const txs = C.createScheduledTransactions(state, currentMonth);
+    if (!txs.length) return;
+    const total = txs.reduce((a, t) => a + t.amount, 0);
+    if (!confirm(`${monthLabel(currentMonth)}の固定支出・返済 ${txs.length} 件（${C.formatYen(total)}）を支出として記録しますか？`)) return;
+    state.transactions.push(...txs);
+    commit();
+  });
+
+  $('#fixed-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const f = {
+      id: form.fixedId.value || C.genId(),
+      name: form.title.value.trim(),
+      amount: Math.round(Number(form.amount.value)),
+      category: form.category.value,
+      accountId: form.accountId.value,
+      day: Math.round(Number(form.day.value)),
+    };
+    const errors = C.validateFixedExpense(f, state);
+    if (errors.length) {
+      $('#fixed-errors').textContent = errors.join(' / ');
+      return;
+    }
+    const idx = state.fixedExpenses.findIndex((x) => x.id === f.id);
+    if (idx >= 0) state.fixedExpenses[idx] = f;
+    else state.fixedExpenses.push(f);
+    commit();
+    resetFixedForm();
+  });
+
+  $('#fixed-cancel').addEventListener('click', resetFixedForm);
+
+  $('#fixed-list').addEventListener('click', (e) => {
+    const edit = e.target.closest('[data-fixed-edit]');
+    const del = e.target.closest('[data-fixed-del]');
+    if (edit) {
+      const f = state.fixedExpenses.find((x) => x.id === edit.dataset.fixedEdit);
+      const form = $('#fixed-form');
+      syncFixedFormOptions();
+      form.fixedId.value = f.id;
+      form.title.value = f.name;
+      form.amount.value = f.amount;
+      if (![...form.category.options].some((o) => o.value === f.category)) {
+        form.category.insertAdjacentHTML('beforeend', `<option value="${esc(f.category)}">${esc(f.category)}</option>`);
+      }
+      form.category.value = f.category;
+      form.accountId.value = f.accountId;
+      form.day.value = f.day;
+      $('#fixed-form-title').textContent = '固定支出を編集';
+      $('#fixed-submit').textContent = '更新';
+      $('#fixed-cancel').hidden = false;
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (del && confirm('この固定支出を削除しますか？（記録済みの支出はそのまま残ります）')) {
+      state.fixedExpenses = state.fixedExpenses.filter((x) => x.id !== del.dataset.fixedDel);
+      if ($('#fixed-form').fixedId.value === del.dataset.fixedDel) resetFixedForm();
+      commit();
+    }
+  });
+
+  $('#loan-form').addEventListener('input', updateLoanPreview);
+
+  $('#loan-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const id = form.loanId.value || C.genId();
+    const current = Math.round(Number(form.balance.value));
+    const l = {
+      id,
+      name: form.title.value.trim(),
+      balance: current,
+      annualRate: Number(form.annualRate.value),
+      monthlyPayment: Math.round(Number(form.monthlyPayment.value)),
+      accountId: form.accountId.value,
+      day: Math.round(Number(form.day.value)),
+    };
+    const errors = C.validateLoan(l, state);
+    if (errors.length) {
+      $('#loan-errors').textContent = errors.join(' / ');
+      return;
+    }
+    const idx = state.loans.findIndex((x) => x.id === id);
+    if (idx >= 0) {
+      // 入力は「現在の残高」なので、記録済み返済の元金分を足して登録時点の残高として保存する
+      const repaid = state.loans[idx].balance - C.loanBalance(state, state.loans[idx]);
+      l.balance = current + repaid;
+      state.loans[idx] = l;
+    } else {
+      state.loans.push(l);
+    }
+    commit();
+    resetLoanForm();
+  });
+
+  $('#loan-cancel').addEventListener('click', resetLoanForm);
+
+  $('#loan-list').addEventListener('click', (e) => {
+    const edit = e.target.closest('[data-loan-edit]');
+    const del = e.target.closest('[data-loan-del]');
+    if (edit) {
+      const l = state.loans.find((x) => x.id === edit.dataset.loanEdit);
+      const form = $('#loan-form');
+      syncFixedFormOptions();
+      form.loanId.value = l.id;
+      form.title.value = l.name;
+      form.balance.value = C.loanBalance(state, l);
+      form.annualRate.value = l.annualRate;
+      form.monthlyPayment.value = l.monthlyPayment;
+      form.accountId.value = l.accountId;
+      form.day.value = l.day;
+      $('#loan-form-title').textContent = '借入を編集';
+      $('#loan-submit').textContent = '更新';
+      $('#loan-cancel').hidden = false;
+      updateLoanPreview();
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (del && confirm('この借入を削除しますか？（記録済みの返済は支出として残ります）')) {
+      state.loans = state.loans.filter((x) => x.id !== del.dataset.loanDel);
+      if ($('#loan-form').loanId.value === del.dataset.loanDel) resetLoanForm();
+      commit();
+    }
   });
 
   // ---------- 口座 ----------
@@ -437,6 +717,8 @@
       state = C.normalizeState(data);
       commit();
       resetTxForm();
+      resetFixedForm();
+      resetLoanForm();
       alert('復元しました');
     } catch (err) {
       alert('復元に失敗しました: ' + err.message);
@@ -448,6 +730,8 @@
     state = C.createInitialState();
     commit();
     resetTxForm();
+    resetFixedForm();
+    resetLoanForm();
   });
 
   // ---------- アプリ化（PWA） ----------
@@ -497,5 +781,7 @@
   // ---------- 起動 ----------
   render();
   resetTxForm();
+  resetFixedForm();
+  resetLoanForm();
   renderInstallCard();
 })();

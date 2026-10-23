@@ -26,10 +26,11 @@
   </header>
 
   <nav class="tabs" role="tablist">
-    <button type="button" role="tab" data-tab="dashboard" class="active">ダッシュボード</button>
-    <button type="button" role="tab" data-tab="transactions">取引</button>
+    <button type="button" role="tab" data-tab="dashboard" class="active"><span class="tab-full">ダッシュボード</span><span class="tab-short">ホーム</span></button>
+    <button type="button" role="tab" data-tab="transactions">入出金</button>
+    <button type="button" role="tab" data-tab="fixed"><span class="tab-full">固定費・借入</span><span class="tab-short">固定費</span></button>
     <button type="button" role="tab" data-tab="accounts">口座</button>
-    <button type="button" role="tab" data-tab="settings">予算・設定</button>
+    <button type="button" role="tab" data-tab="settings"><span class="tab-full">予算・設定</span><span class="tab-short">設定</span></button>
   </nav>
 
   <main>
@@ -37,8 +38,13 @@
     <section id="tab-dashboard" class="tab-panel active">
       <div class="stats">
         <div class="stat"><span class="label">総資産（月末時点）</span><span class="value" id="stat-total"></span></div>
+        <div class="stat"><span class="label">借入残高（月末時点）</span><span class="value" id="stat-loan"></span></div>
+        <div class="stat"><span class="label">純資産（総資産−借入）</span><span class="value" id="stat-networth"></span></div>
         <div class="stat"><span class="label">今月の収入</span><span class="value income" id="stat-income"></span></div>
-        <div class="stat"><span class="label">今月の支出</span><span class="value expense" id="stat-expense"></span></div>
+        <div class="stat">
+          <span class="label">今月の支出</span><span class="value expense" id="stat-expense"></span>
+          <span class="sub" id="stat-expense-split"></span>
+        </div>
         <div class="stat"><span class="label">今月の収支</span><span class="value" id="stat-net"></span></div>
       </div>
 
@@ -59,10 +65,10 @@
       </div>
     </section>
 
-    <!-- 取引 -->
+    <!-- 入出金 -->
     <section id="tab-transactions" class="tab-panel">
       <div class="card">
-        <h2 id="tx-form-title">取引を追加</h2>
+        <h2 id="tx-form-title">入出金を追加</h2>
         <form id="tx-form" class="form-grid">
           <input type="hidden" name="txId">
           <div class="type-toggle" role="radiogroup" aria-label="種別">
@@ -75,6 +81,13 @@
           <label class="field-category">カテゴリ<select name="category"></select></label>
           <label><span class="account-label">口座</span><select name="accountId"></select></label>
           <label class="field-to-account" hidden>振替先<select name="toAccountId"></select></label>
+          <div class="field-kind" role="radiogroup" aria-label="支出の区分">
+            <span class="kind-label">区分</span>
+            <div class="type-toggle small">
+              <label><input type="radio" name="kind" value="variable" checked><span>変動支出</span></label>
+              <label><input type="radio" name="kind" value="fixed"><span>固定支出</span></label>
+            </div>
+          </div>
           <label class="field-memo">メモ<input type="text" name="memo" maxlength="100"></label>
           <p class="form-errors" id="tx-errors" role="alert"></p>
           <div class="form-actions">
@@ -86,7 +99,7 @@
 
       <div class="card">
         <div class="card-head">
-          <h2>取引一覧</h2>
+          <h2>入出金一覧</h2>
           <input type="search" id="tx-search" placeholder="メモ・カテゴリで検索">
         </div>
         <div class="table-wrap">
@@ -95,7 +108,58 @@
             <tbody id="tx-body"></tbody>
           </table>
         </div>
-        <p class="empty" id="tx-empty" hidden>この月の取引はありません</p>
+        <p class="empty" id="tx-empty" hidden>この月の入出金はありません</p>
+      </div>
+    </section>
+
+    <!-- 固定費・借入 -->
+    <section id="tab-fixed" class="tab-panel">
+      <div class="card">
+        <div class="card-head">
+          <h2 id="schedule-title">今月の固定支出・返済</h2>
+          <button type="button" class="primary" id="record-schedule">未記録の分を記録</button>
+        </div>
+        <p class="hint">登録した固定支出と借入返済を、ボタンひとつでこの月の支出として記録します。返済分は口座残高と借入残高に反映されます。</p>
+        <ul id="schedule-list" class="item-list"></ul>
+        <p class="empty" id="schedule-empty" hidden>固定支出・借入はまだ登録されていません</p>
+      </div>
+
+      <div class="card">
+        <h2 id="fixed-form-title">固定支出を登録</h2>
+        <form id="fixed-form" class="form-grid">
+          <input type="hidden" name="fixedId">
+          <label>名前<input type="text" name="title" required maxlength="30" placeholder="例: 家賃、スマホ代、サブスク"></label>
+          <label>金額（円／月）<input type="number" name="amount" min="1" step="1" inputmode="numeric" required></label>
+          <label>カテゴリ<select name="category"></select></label>
+          <label>引落口座<select name="accountId"></select></label>
+          <label>引落日（毎月）<input type="number" name="day" min="1" max="31" step="1" inputmode="numeric" value="27" required></label>
+          <p class="form-errors" id="fixed-errors" role="alert"></p>
+          <div class="form-actions">
+            <button type="submit" class="primary" id="fixed-submit">登録</button>
+            <button type="button" id="fixed-cancel" hidden>キャンセル</button>
+          </div>
+        </form>
+        <ul id="fixed-list" class="item-list"></ul>
+      </div>
+
+      <div class="card">
+        <h2 id="loan-form-title">借入を登録</h2>
+        <form id="loan-form" class="form-grid">
+          <input type="hidden" name="loanId">
+          <label>名前<input type="text" name="title" required maxlength="30" placeholder="例: 住宅ローン、カードローン"></label>
+          <label>現在の借入残高（円）<input type="number" name="balance" min="1" step="1" inputmode="numeric" required></label>
+          <label>年利（%）<input type="number" name="annualRate" min="0" max="99.99" step="0.01" inputmode="decimal" required placeholder="例: 1.5"></label>
+          <label>月々の返済額（円）<input type="number" name="monthlyPayment" min="1" step="1" inputmode="numeric" required></label>
+          <label>返済日（毎月）<input type="number" name="day" min="1" max="31" step="1" inputmode="numeric" value="27" required></label>
+          <label>引落口座<select name="accountId"></select></label>
+          <p class="loan-preview" id="loan-preview"></p>
+          <p class="form-errors" id="loan-errors" role="alert"></p>
+          <div class="form-actions">
+            <button type="submit" class="primary" id="loan-submit">登録</button>
+            <button type="button" id="loan-cancel" hidden>キャンセル</button>
+          </div>
+        </form>
+        <ul id="loan-list" class="item-list"></ul>
       </div>
     </section>
 
